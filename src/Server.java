@@ -23,18 +23,23 @@ public class Server {
      * Connect to the database
      * @throws IOException
      */
-    Connection setupDB()  {
+    Connection setupDB() {
         String rootPath = Thread.currentThread().getContextClassLoader().getResource("").getPath();
         Properties dbProps = new Properties();
         try {
             dbProps.load(new FileInputStream(rootPath + "db.properties"));
-            //TODO Connect to DB at the url dbProps.getProperty("url")
-            return /* Database connection */ null;
+            String url = dbProps.getProperty("url");
+            String user = dbProps.getProperty("user");
+            String password = dbProps.getProperty("password");
+
+            // Verbindung zur PostgreSQL-Datenbank herstellen
+            return DriverManager.getConnection(url, user, password);
         } catch (Exception throwables) {
             throwables.printStackTrace();
         }
         return null;
     }
+
 
     /**
      * Startup the Webserver
@@ -66,27 +71,26 @@ public class Server {
         @Override
         public void handle(HttpExchange t) throws IOException {
             Connection conn = setupDB();
-
             JSONArray res = new JSONArray();
-            
-            //TODO read all articles and add them to res
-            JSONObject art1 = new JSONObject();
-            art1.put("id", 1);
-            art1.put("description", "Bleistift");
-            art1.put("price", 0.70);
-            art1.put("amount", 2);
-            res.put(art1);
-            JSONObject art2 = new JSONObject();
-            art2.put("id", 2);
-            art2.put("description", "Papier");
-            art2.put("price", 2);
-            art2.put("amount", 100);
-            res.put(art2);
 
+            try {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT * FROM articles");
 
-            answerRequest(t,res.toString());
+                while (rs.next()) {
+                    JSONObject article = new JSONObject();
+                    article.put("id", rs.getInt("id"));
+                    article.put("description", rs.getString("description"));
+                    article.put("price", rs.getInt("price"));
+                    article.put("amount", rs.getInt("amount"));
+                    res.put(article);
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+
+            answerRequest(t, res.toString());
         }
-
     }
 
     /**
@@ -96,20 +100,29 @@ public class Server {
         @Override
         public void handle(HttpExchange t) throws IOException {
             Connection conn = setupDB();
-
             JSONArray res = new JSONArray();
-            
-            //TODO read all clients and add them to res
-	    JSONObject cli = new JSONObject();
-            cli.put("id", 1);
-            cli.put("name", "Brein");
-            cli.put("address", "TGM, 1220 Wien");
-            res.put(cli);
 
-           answerRequest(t,res.toString());
+            try {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT * FROM clients");
+
+                while (rs.next()) {
+                    JSONObject client = new JSONObject();
+                    client.put("id", rs.getInt("id"));
+                    client.put("name", rs.getString("name"));
+                    client.put("address", rs.getString("address"));
+                    client.put("city", rs.getString("city"));
+                    client.put("country", rs.getString("country"));
+                    res.put(client);
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+
+            answerRequest(t, res.toString());
         }
-
     }
+
 
 
     /**

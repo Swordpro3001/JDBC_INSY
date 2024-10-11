@@ -21,7 +21,6 @@ public class Server {
 
     /**
      * Connect to the database
-     * @throws IOException
      */
     Connection setupDB() {
         String rootPath = Thread.currentThread().getContextClassLoader().getResource("").getPath();
@@ -43,7 +42,6 @@ public class Server {
 
     /**
      * Startup the Webserver
-     * @throws IOException
      */
     public void start() throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
@@ -132,26 +130,37 @@ public class Server {
         @Override
         public void handle(HttpExchange t) throws IOException {
             Connection conn = setupDB();
-
             JSONArray res = new JSONArray();
-            
-            //TODO read all orders and add them to res
-            // Join orders with clients, order lines, and articles
-            // Get the order id, client name, number of lines, and total prize of each order and add them to res
-            JSONObject ord = new JSONObject();
-	    ord.put("id", 1);
-            ord.put("client", "Brein");
-            ord.put("lines", 2);
-            ord.put("price", 3.5);
-            res.put(ord);
 
+            try {
+                String query = "SELECT orders.id, clients.name AS client, COUNT(order_lines.id) AS lines, "
+                        + "SUM(order_lines.amount * articles.price) AS price "
+                        + "FROM orders "
+                        + "JOIN clients ON orders.client_id = clients.id "
+                        + "JOIN order_lines ON order_lines.order_id = orders.id "
+                        + "JOIN articles ON articles.id = order_lines.article_id "
+                        + "GROUP BY orders.id, clients.name";
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(query);
+
+                while (rs.next()) {
+                    JSONObject order = new JSONObject();
+                    order.put("id", rs.getInt("id"));
+                    order.put("client", rs.getString("client"));
+                    order.put("lines", rs.getInt("lines"));
+                    order.put("price", rs.getInt("price"));
+                    res.put(order);
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
 
             answerRequest(t, res.toString());
-
         }
     }
 
-   
+
+
     /**
      * Handler class to place an order
      */
@@ -228,7 +237,6 @@ public class Server {
      * Helper function to send an answer given as a String back to the browser
      * @param t HttpExchange of the request
      * @param response Answer to send
-     * @throws IOException
      */
     private void answerRequest(HttpExchange t, String response) throws IOException {
         byte[] payload = response.getBytes();
@@ -240,8 +248,6 @@ public class Server {
 
     /**
      * Helper method to parse query paramaters
-     * @param query
-     * @return
      */
     public static Map<String, String> queryToMap(String query){
         Map<String, String> result = new HashMap<String, String>();

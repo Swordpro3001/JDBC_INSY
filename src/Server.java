@@ -17,7 +17,7 @@ public class Server {
     /**
      * Port to bind to for HTTP service
      */
-    private int port = 8000;
+    private final int port = 8000;
 
     /**
      * Connect to the database
@@ -167,47 +167,76 @@ public class Server {
     class PlaceOrderHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
-
             Connection conn = setupDB();
-            Map <String,String> params  = queryToMap(t.getRequestURI().getQuery());
-
+            Map<String, String> params = queryToMap(t.getRequestURI().getQuery());
             int client_id = Integer.parseInt(params.get("client_id"));
-
+            int order_id = 0;
             String response = "";
-            int order_id = 1;
+
             try {
+                conn.setAutoCommit(false);
 
-
-                //TODO Get the next free order id
-
-                //TODO Create a new order with this id for client client_id
-
-
-                for (int i = 1; i <= (params.size()-1) / 2; ++i ){
-                    int article_id = Integer.parseInt(params.get("article_id_"+i));
-                    int amount = Integer.parseInt(params.get("amount_"+i));
-
-
-		    //TODO Get the available amount for article article_id
-                    int available = 1000;
-
-
-                    if (available < amount)
-                        throw new IllegalArgumentException(String.format("Not enough items of article #%d available", article_id));
-
-		    //TODO Decrease the available amount for article article_id by amount
-
-		    //TODO Insert new order line
+                // 1. Nächste Bestell-ID holen
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT MAX(id) FROM orders");
+                if (rs.next()) {
+                    order_id = rs.getInt(1) + 1;
                 }
 
-                response = String.format("{\"order_id\": %d}", order_id);
-            } catch (IllegalArgumentException iae) {
-                response = String.format("{\"error\":\"%s\"}", iae.getMessage());
+                // 2. Bestellung anlegen
+                String insertOrder = "INSERT INTO orders (id, client_id) VALUES (?, ?)";
+                PreparedStatement psOrder = conn.prepareStatement(insertOrder);
+                psOrder.setInt(1, order_id);
+                psOrder.setInt(2, client_id);
+                psOrder.executeUpdate();
+
+                // 3. Bestellungslinien anlegen
+                for (int i = 1; i <= (params.size() - 1) / 2; ++i) {
+                    int article_id = Integer.parseInt(params.get("article_id_" + i));
+                    int amount = Integer.parseInt(params.get("amount_" + i));
+
+                    // Verfügbaren Lagerbestand überprüfen
+                    String checkStock = "SELECT amount FROM articles WHERE id = ?";
+                    PreparedStatement psStock = conn.prepareStatement(checkStock);
+                    psStock.setInt(1, article_id);
+                    rs = psStock.executeQuery();
+                    if (rs.next())
+
+                    {
+                        int stock = rs.getInt(1);
+                        if (stock < amount) {
+                            throw new SQLException("Nicht genügend Artikel #" + article_id + " verfügbar");
+                        }
+                    }
+
+                    // Bestelllinie einfügen
+                    String insertLine = "INSERT INTO order_lines (article_id, order_id, amount) VALUES (?, ?, ?)";
+                    PreparedStatement psLine = conn.prepareStatement(insertLine);
+                    psLine.setInt(1, article_id);
+                    psLine.setInt(2, order_id);
+                    psLine.setInt(3, amount);
+                    psLine.executeUpdate();
+
+                    // Lagerbestand aktualisieren
+                    String updateStock = "UPDATE articles SET amount = amount - ? WHERE id = ?";
+                    PreparedStatement psUpdateStock = conn.prepareStatement(updateStock);
+                    psUpdateStock.setInt(1, amount);
+                    psUpdateStock.setInt(2, article_id);
+                    psUpdateStock.executeUpdate();
+                }
+
+                conn.commit();
+                response = new JSONObject().put("order_id", order_id).toString();
+            } catch (SQLException e) {
+                response = new JSONObject().put("error", e.getMessage()).toString();
+                try {
+                    conn.rollback();
+                } catch (SQLException rollbackEx) {
+                    rollbackEx.printStackTrace();
+                }
+            } finally {
+                answerRequest(t, response);
             }
-
-            answerRequest(t, response);
-
-
         }
     }
 
@@ -250,9 +279,9 @@ public class Server {
      * Helper method to parse query paramaters
      */
     public static Map<String, String> queryToMap(String query){
-        Map<String, String> result = new HashMap<String, String>();
+        Map<String, String> result = new HashMap<>();
         for (String param : query.split("&")) {
-            String pair[] = param.split("=");
+            String[] pair = param.split("=");
             if (pair.length>1) {
                 result.put(pair[0], pair[1]);
             }else{
